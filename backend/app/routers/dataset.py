@@ -1,4 +1,7 @@
-"""数据集管理接口：维护分析数据集，覆盖完成接入、启用数据集、归档数据集等动作。"""
+"""数据集管理接口：维护分析数据集，覆盖完成接入、启用数据集、归档数据集等动作。
+
+导入文件时联动字段契约：生成字段契约快照；导出或下载时在快照上保留文件回执。
+"""
 from __future__ import annotations
 
 import csv
@@ -9,10 +12,12 @@ from fastapi.responses import StreamingResponse
 
 from app.schemas import ActionPayload, ActionResult, EntryPayload, PageResult
 from app.services.dataset import DatasetService
+from app.services.field_contract import FieldContractService
 
 router = APIRouter(prefix="/api/dataset", tags=["数据集管理"])
 
 service = DatasetService()
+contract_service = FieldContractService()
 
 LIST_FIELDS = ["数据集编号", "数据集名称", "来源类型", "字段数量", "行数估算", "刷新周期", "负责人", "数据集状态"]
 STATUSES = ["待接入", "已接入", "使用中", "已归档"]
@@ -47,9 +52,13 @@ def export_entries(
     keyword: str | None = Query(default=None),
     status: str | None = Query(default=None),
 ) -> StreamingResponse:
-    """下载当前筛选条件下的 UTF-8 CSV；必须声明在 /{entry_id} 之前。"""
+    """下载当前筛选条件下的 UTF-8 CSV；必须声明在 /{entry_id} 之前。
+
+    导出或下载时顺着既有调用链，在相关字段契约的最新快照上保留文件回执。
+    """
     items, _ = service.list_entries(
         filters=query_filters(request), keyword=keyword, status=status, page=1, size=1000000)
+    contract_service.record_export_receipt(items, "dataset.csv")
     output = io.StringIO()
     output.write("\ufeff")
     writer = csv.writer(output, lineterminator="\n")
@@ -90,3 +99,12 @@ def run_action(entry_id: int, payload: ActionPayload) -> ActionResult:
     if entry is None:
         return ActionResult(ok=False, message=message)
     return ActionResult(ok=True, message=message, entry=entry)
+
+
+@router.post("/{entry_id}/import", response_model=ActionResult)
+def import_file(entry_id: int, payload: dict[str, object]) -> ActionResult:
+    """导入文件：登记来源 schema 变更包并按声明来源规则编译，生成字段契约快照。"""
+    entry, message, snapshot = contract_service.import_file_for_dataset(entry_id, payload)
+    if entry is None:
+        return ActionResult(ok=False, message=message)
+    return ActionResult(ok=True, message=message, entry={"契约": entry, "快照": snapshot})

@@ -613,3 +613,56 @@ test('概览汇总', async ({ page }) => {
   await expect(page.locator('.stat-value').nth(1)).toBeVisible()
   // 验证概览页加载正常即可，不硬编码精确计数（取决于各模块 E2E 登记成功数）
 })
+
+test('字段契约：导入变更包、按声明来源规则编译、快照核对与审核', async ({ page }) => {
+  test.setTimeout(300_000)
+  const browserErrors: string[] = []
+  page.on('pageerror', e => browserErrors.push(e.message))
+  page.on('response', r => { if (r.url().includes('/api/') && r.status()>=400) browserErrors.push(`${r.status()} ${r.url()}`) })
+
+  // 列表、筛选与导出
+  await page.goto('/field_contract')
+  await page.waitForTimeout(3000)
+  const bodyRows = page.locator('tbody tr[data-testid^="row-"]')
+  await expect(bodyRows).toHaveCount(3)
+  await page.getByTestId('filter-契约编号').fill('CONT-0002')
+  await page.getByTestId('query').click()
+  await expect(bodyRows).toHaveCount(1)
+  await page.getByTestId('reset').click()
+  await expect(bodyRows).toHaveCount(3)
+
+  const downloadPromise = page.waitForEvent('download')
+  await page.getByTestId('export').click()
+  const download = await downloadPromise
+  expect(download.suggestedFilename()).toBe('field_contract.csv')
+
+  // 契约详情：字段签名、来源规则、变更包与快照
+  await page.getByTestId('detail-2').click()
+  await expect(page.getByTestId('contract-detail')).toBeVisible()
+  await expect(page.getByTestId('contract-detail')).toContainText('jdbc:crm > kafka:orders')
+  await expect(page.getByTestId('contract-detail')).toContainText('PKG-0001')
+  await expect(page.getByTestId('contract-detail')).toContainText('SNAP-0003')
+  await page.getByTestId('close-detail').click()
+
+  // 导入来源 schema 变更包并按声明来源规则编译
+  await page.getByTestId('import-2').click()
+  await page.getByTestId('import-source').fill('jdbc:crm')
+  await page.getByTestId('import-signatures').fill('nickname,string')
+  await page.getByTestId('submit-import').click()
+  await expect(page.getByTestId('import-modal')).toHaveCount(0)
+  await page.getByTestId('compile-2').click()
+  await expect(page.locator('[data-testid="row-2"]')).toHaveAttribute('data-status', '待审核')
+
+  // 字段契约快照与主版本逐项核对
+  await page.getByTestId('detail-2').click()
+  await page.getByTestId('diff-3').click()
+  await expect(page.getByTestId('diff-result')).toBeVisible()
+  await expect(page.getByTestId('diff-result')).toContainText('快照后新增')
+  await page.getByTestId('close-detail').click()
+
+  // 接受变更后契约发布，查询模板只引用已发布契约中的字段
+  await page.getByTestId('action-2-接受变更').click()
+  await expect(page.locator('[data-testid="row-2"]')).toHaveAttribute('data-status', '已发布')
+
+  expect(browserErrors).toEqual([])
+})

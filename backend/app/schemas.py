@@ -251,3 +251,15 @@ class AuditEntry(BaseModel):
     field_5: str | None = None  # 变更内容
     field_6: str | None = None  # 审计结果
     field_7: str | None = None  # 记录状态
+
+class FieldContractEntry(BaseModel):
+    """字段契约明细结构。"""
+
+    field_0: str | None = None  # 契约编号
+    field_1: str | None = None  # 数据集编号
+    field_2: str | None = None  # 数据集名称
+    field_3: str | None = None  # 契约版本
+    field_4: str | None = None  # 来源规则
+    field_5: str | None = None  # 字段数量
+    field_6: str | None = None  # 负责人
+    field_7: str | None = None  # 契约状态
